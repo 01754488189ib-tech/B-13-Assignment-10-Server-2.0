@@ -31,7 +31,7 @@ client
     usersColl
       .updateMany(
         { email: { $in: ["01754488189ib@gmail.com", "admin@fable.com"] } },
-        { $set: { role: "admin" } },
+        { $set: { role: "admin", userRole: "admin" } },
       )
       .then(() => console.log("Admin account checks completed"))
       .catch((err) => console.error("Admin check failed", err));
@@ -69,6 +69,10 @@ const verifyToken = async (req, res, next) => {
     return res.status(401).send({ message: "Unauthorized access" });
   }
 
+  if (user.status === "banned") {
+    return res.status(403).send({ message: "Your account has been banned." });
+  }
+
   req.user = user;
   next();
 };
@@ -95,197 +99,53 @@ app.get("/", (req, res) => {
   res.send("Fable Platform Express Server Online");
 });
 
-app.get("/api/seed-database", async (req, res) => {
+app.get("/api/top-writers", async (req, res) => {
   try {
-    await ebooksCollection.deleteMany({});
-    await transactionsCollection.deleteMany({});
-    await bookmarksCollection.deleteMany({});
+    const topWritersAggr = await transactionsCollection
+      .aggregate([
+        { $match: { type: "purchase" } },
+        {
+          $group: {
+            _id: "$writerEmail",
+            salesCount: { $sum: 1 },
+            revenue: { $sum: "$amount" },
+          },
+        },
+        { $sort: { salesCount: -1 } },
+        { $limit: 3 },
+      ])
+      .toArray();
 
-    const seedEbooks = [
-      {
-        title: "Nebula Odyssey",
-        description:
-          "An epic journey through uncharted space sectors, exploring ancient alien technology and stellar anomalies.",
-        price: 14.99,
-        genre: "Sci-Fi",
-        writerId: "writer_1",
-        writerName: "Alina Vance",
-        writerEmail: "alina@fable.com",
-        status: "Available",
-        coverGradient: "from-blue-600 via-indigo-700 to-purple-800",
-        createdAt: new Date("2026-02-15T08:00:00Z"),
-        updatedAt: new Date("2026-02-15T08:00:00Z"),
-      },
-      {
-        title: "The Lost Realm",
-        description:
-          "A young cartographer discovers a hidden kingdom buried beneath the shifting sands of the deep desert.",
-        price: 9.99,
-        genre: "Fantasy",
-        writerId: "writer_2",
-        writerName: "Evelyn Thorne",
-        writerEmail: "evelyn@fable.com",
-        status: "Available",
-        coverGradient: "from-amber-600 via-orange-700 to-red-800",
-        createdAt: new Date("2026-03-10T10:30:00Z"),
-        updatedAt: new Date("2026-03-10T10:30:00Z"),
-      },
-      {
-        title: "Midnight Mystery",
-        description:
-          "A retired detective is drawn back into the shadows after receiving a series of cryptic, unsigned letters.",
-        price: 11.5,
-        genre: "Mystery",
-        writerId: "writer_3",
-        writerName: "Jasper Finch",
-        writerEmail: "jasper@fable.com",
-        status: "Available",
-        coverGradient: "from-zinc-800 to-zinc-950",
-        createdAt: new Date("2026-04-05T14:20:00Z"),
-        updatedAt: new Date("2026-04-05T14:20:00Z"),
-      },
-      {
-        title: "Rhythms of Love",
-        description:
-          "Two musicians from completely different worlds find harmony in their shared devotion to jazz and melody.",
-        price: 8.99,
-        genre: "Romance",
-        writerId: "writer_2",
-        writerName: "Evelyn Thorne",
-        writerEmail: "evelyn@fable.com",
-        status: "Available",
-        coverGradient: "from-rose-500 via-pink-600 to-red-700",
-        createdAt: new Date("2026-04-20T11:15:00Z"),
-        updatedAt: new Date("2026-04-20T11:15:00Z"),
-      },
-      {
-        title: "The Creeping Shadow",
-        description:
-          "Unexplained occurrences in a remote village lead to the uncovering of an ancient, sleeping presence.",
-        price: 12.0,
-        genre: "Horror",
-        writerId: "writer_3",
-        writerName: "Jasper Finch",
-        writerEmail: "jasper@fable.com",
-        status: "Sold",
-        coverGradient: "from-emerald-900 to-black",
-        createdAt: new Date("2026-05-12T09:00:00Z"),
-        updatedAt: new Date("2026-05-12T09:00:00Z"),
-      },
-      {
-        title: "Echoes of Eternity",
-        description:
-          "A collection of contemporary short stories discussing identity, loss, and our timeless search for meaning.",
-        price: 7.5,
-        genre: "Fiction",
-        writerId: "writer_1",
-        writerName: "Alina Vance",
-        writerEmail: "alina@fable.com",
-        status: "Available",
-        coverGradient: "from-teal-600 to-blue-800",
-        createdAt: new Date("2026-06-01T16:45:00Z"),
-        updatedAt: new Date("2026-06-01T16:45:00Z"),
-      },
-    ];
+    const emails = topWritersAggr.map((w) => w._id);
+    const users = await usersCollection
+      .find({ email: { $in: emails } })
+      .toArray();
 
-    const booksInsert = await ebooksCollection.insertMany(seedEbooks);
-    const insertedIds = Object.values(booksInsert.insertedIds);
-
-    const seedTransactions = [
-      {
-        transactionId: "TX_SEED_1001",
-        type: "publishing fee",
-        ebookId: null,
-        buyerEmail: "writer_1@fable.com",
-        amount: 20.0,
-        createdAt: new Date("2026-02-14T12:00:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1002",
-        type: "publishing fee",
-        ebookId: null,
-        buyerEmail: "writer_2@fable.com",
-        amount: 20.0,
-        createdAt: new Date("2026-03-09T12:00:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1003",
-        type: "purchase",
-        ebookId: insertedIds[0],
-        ebookTitle: "Nebula Odyssey",
-        buyerEmail: "reader_test@fable.com",
-        writerEmail: "alina@fable.com",
-        amount: 14.99,
-        createdAt: new Date("2026-02-20T15:30:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1004",
-        type: "purchase",
-        ebookId: insertedIds[1],
-        ebookTitle: "The Lost Realm",
-        buyerEmail: "reader_test@fable.com",
-        writerEmail: "evelyn@fable.com",
-        amount: 9.99,
-        createdAt: new Date("2026-03-15T10:00:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1005",
-        type: "purchase",
-        ebookId: insertedIds[2],
-        ebookTitle: "Midnight Mystery",
-        buyerEmail: "reader_test@fable.com",
-        writerEmail: "jasper@fable.com",
-        amount: 11.5,
-        createdAt: new Date("2026-04-10T14:00:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1006",
-        type: "purchase",
-        ebookId: insertedIds[3],
-        ebookTitle: "Rhythms of Love",
-        buyerEmail: "reader_test2@fable.com",
-        writerEmail: "evelyn@fable.com",
-        amount: 8.99,
-        createdAt: new Date("2026-05-05T11:00:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1007",
-        type: "purchase",
-        ebookId: insertedIds[4],
-        ebookTitle: "The Creeping Shadow",
-        buyerEmail: "reader_test2@fable.com",
-        writerEmail: "jasper@fable.com",
-        amount: 12.0,
-        createdAt: new Date("2026-05-25T16:00:00Z"),
-      },
-      {
-        transactionId: "TX_SEED_1008",
-        type: "purchase",
-        ebookId: insertedIds[5],
-        ebookTitle: "Echoes of Eternity",
-        buyerEmail: "reader_test@fable.com",
-        writerEmail: "alina@fable.com",
-        amount: 7.5,
-        createdAt: new Date("2026-06-12T09:30:00Z"),
-      },
-    ];
-
-    await transactionsCollection.insertMany(seedTransactions);
-
-    await usersCollection.updateMany(
-      { email: { $in: ["01754488189ib@gmail.com", "admin@fable.com"] } },
-      { $set: { role: "admin" } },
-    );
-
-    res.send({
-      success: true,
-      message:
-        "Database successfully seeded with ebooks and transactions. Verified admins upgraded.",
-      insertedEbooksCount: seedEbooks.length,
-      insertedTransactionsCount: seedTransactions.length,
+    const result = topWritersAggr.map((w, idx) => {
+      const user = users.find((u) => u.email === w._id);
+      const name = user ? user.name : w._id ? w._id.split("@")[0] : "Writer";
+      const gradients = [
+        "from-blue-600 to-indigo-600",
+        "from-rose-500 to-orange-500",
+        "from-amber-500 to-yellow-600",
+      ];
+      return {
+        name,
+        sales: w.salesCount,
+        revenue: w.revenue,
+        avatarInitial: name
+          .split(" ")
+          .map((n) => n[0])
+          .join("")
+          .toUpperCase()
+          .slice(0, 2),
+        gradient: gradients[idx % gradients.length],
+      };
     });
+
+    res.send(result);
   } catch (err) {
-    res.status(500).send({ message: "Seeding failed", error: err.message });
+    res.status(500).send({ message: "Error loading top writers" });
   }
 });
 
@@ -492,15 +352,8 @@ app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
         _id: new ObjectId(ebookId),
       });
       if (!ebook) {
-        return res.status(404).send({ message: "Ebook not found" });
+        return res.status(404).send({ message: "Target manuscript not found" });
       }
-      if (ebook.status === "Sold") {
-        return res.status(400).send({ message: "Ebook already sold" });
-      }
-
-      metadata.ebookId = ebookId;
-      metadata.writerEmail = ebook.writerEmail || ebook.writerId;
-      metadata.ebookTitle = ebook.title;
 
       line_items = [
         {
@@ -508,23 +361,33 @@ app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
             currency: "usd",
             product_data: {
               name: ebook.title,
-              description: `Ebook by ${ebook.writerName}`,
-              images: ebook.coverImage ? [ebook.coverImage] : [],
+              description: `Digital manuscript authored by ${ebook.writerName}`,
             },
-            unit_amount: Math.round(parseFloat(ebook.price) * 100),
+            unit_amount: Math.round(ebook.price * 100),
           },
           quantity: 1,
         },
       ];
+
+      metadata = {
+        type: "purchase",
+        ebookId: ebook._id.toString(),
+        buyerEmail: user.email,
+        writerEmail: ebook.writerEmail || "",
+        amount: ebook.price.toString(),
+      };
+
+      successUrl = `${origin}/browse/success?session_id={CHECKOUT_SESSION_ID}&ebook_id=${ebook._id}`;
+      cancelUrl = `${origin}/browse/${ebook._id}`;
     }
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
+      customer_email: user.email,
       line_items,
       mode: "payment",
-      success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL}/payment/cancel`,
       metadata,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
 
     res.send({ id: session.id, url: session.url });
@@ -608,7 +471,7 @@ app.patch("/api/users/role", verifyToken, async (req, res) => {
   try {
     const query = { _id: req.user._id };
     const updateDoc = {
-      $set: { role: role },
+      $set: { role: role, userRole: role },
     };
     const result = await usersCollection.updateOne(query, updateDoc);
     res.send({ success: true, message: `Role updated to ${role}`, result });
@@ -735,7 +598,7 @@ app.post("/api/transactions", verifyToken, async (req, res) => {
   const txRecord = {
     transactionId,
     type,
-    ebookId: ebookId || null,
+    ebookId: ebookId ? new ObjectId(ebookId) : null,
     buyerEmail,
     writerEmail: writerEmail || null,
     amount: parseFloat(amount),
@@ -799,15 +662,51 @@ app.patch(
       const id = req.params.id;
       const { role } = req.body;
 
-      const query = { $or: [{ _id: id }, { id: id }] };
+      const query = { $or: [{ _id: id }, { id: id }, { _id: new ObjectId(id) }] };
       const updatedDoc = {
-        $set: { role: role },
+        $set: { role: role, userRole: role },
       };
 
       const result = await usersCollection.updateOne(query, updatedDoc);
       res.send(result);
     } catch (err) {
       res.status(500).send({ message: "Error updating user role" });
+    }
+  },
+);
+
+app.patch(
+  "/api/admin/users/:id/ban",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+      const query = { $or: [{ _id: id }, { id: id }, { _id: new ObjectId(id) }] };
+      const result = await usersCollection.updateOne(query, {
+        $set: { status: "banned" },
+      });
+      res.send(result);
+    } catch (err) {
+      res.status(500).send({ message: "Error banning user" });
+    }
+  },
+);
+
+app.patch(
+  "/api/admin/users/:id/unban",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+      const query = { $or: [{ _id: id }, { id: id }, { _id: new ObjectId(id) }] };
+      const result = await usersCollection.updateOne(query, {
+        $set: { status: "active" },
+      });
+      res.send(result);
+    } catch (err) {
+      res.status(500).send({ message: "Error unbanning user" });
     }
   },
 );
@@ -819,7 +718,7 @@ app.delete(
   async (req, res) => {
     try {
       const id = req.params.id;
-      const query = { $or: [{ _id: id }, { id: id }] };
+      const query = { $or: [{ _id: id }, { id: id }, { _id: new ObjectId(id) }] };
       const result = await usersCollection.deleteOne(query);
       res.send(result);
     } catch (err) {
